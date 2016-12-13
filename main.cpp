@@ -5,13 +5,17 @@
 #include <vector>
 #include <thread>
 #include <fstream>
+#include <atomic>
 #include "sha1.hpp"
 
 bool exit_flag = false;
 constexpr const size_t brute_force = 7;
 constexpr const size_t chain_size = 1000;
 
-std::string reduce(std::string &hash, size_t n) {
+std::atomic_bool found = false;
+std::atomic<std::string> found_unicorn;
+
+std::string reduce(std::string hash, size_t n) {
   std::string digits_from_hash;
   std::copy_if(hash.begin(), hash.end(), std::back_inserter(digits_from_hash), isdigit);
   std::string result(digits_from_hash);
@@ -69,6 +73,43 @@ void create_m(int n, std::string filename) {
   }
 }
 
+void find_unicorn_in_rainbows(int n, std::vector<std::pair<std::string, std::string>> &rainbows){
+
+}
+
+void find_hash_b(std::ifstream &input_file, std::string hash){
+  std::string line;
+  std::getline(input_file, line);
+  int n = std::stoi(line);
+  if(n <= 0)
+    throw std::runtime_error("Bad number in file");
+  std::getline(input_file, line);
+  std::vector<std::vector<std::pair<std::string, std::string>>> rainbow;
+  for(int i = 0; i < n; i++)
+    rainbow.push_back(std::vector<std::pair<std::string, std::string>>());
+  int digit_count = 1;
+  while(std::getline(input_file, line)){
+    if(line == std::string()){
+      digit_count++;
+      continue;
+    }
+    auto comma_position = line.find(",");
+    rainbow[digit_count-1].push_back({line.substr(0, comma_position), line.substr(comma_position + 1, line.length() - comma_position)});
+  }
+
+  std::vector<std::thread> threads;
+  for (int i = 0; i < n; i++){
+    threads.push_back(std::thread(find_unicorn_in_rainbows, i+1, std::ref(hash[i])));
+  }
+
+  for(auto &thread : threads){
+    thread.join();
+  }
+
+  if(found)
+    std::cout << found_unicorn << std::endl;
+}
+
 int main(int argc, char *argv[]) {
   if (argc != 4) {
     throw std::invalid_argument("wrong number of argvs, expecting 3");
@@ -81,7 +122,11 @@ int main(int argc, char *argv[]) {
     }
     create_m(num, argv[3]);
   } else if (mode == "--search") {
-
+    std::ifstream input_file(argv[3]);
+    if(!input_file.is_open()){
+      throw std::runtime_error(std::string("Could not open file ") + argv[3]);
+    }
+    find_hash_b(input_file, argv[2]);
   } else {
     throw std::invalid_argument(std::string("unknown switch option ") + argv[1]);
   }

@@ -6,14 +6,18 @@
 #include <thread>
 #include <fstream>
 #include <atomic>
+#include <cstdlib>
+#include <mutex>
 #include "sha1.hpp"
 
 bool exit_flag = false;
-constexpr const size_t brute_force = 7;
+constexpr const size_t brute_force = 8;
 constexpr const size_t chain_size = 1000;
 
-std::atomic_bool found = false;
-std::atomic<std::string> found_unicorn;
+std::mutex mtx;
+
+std::atomic_bool found(false);
+std::string found_unicorn;
 
 std::string reduce(std::string hash, size_t n) {
   std::string digits_from_hash;
@@ -25,19 +29,40 @@ std::string reduce(std::string hash, size_t n) {
   return result.substr(0, n);
 }
 
-void rainbows_and_unicorns(uint64_t n, std::vector<std::pair<std::string, std::string>> &vec){
-  SHA1 sha;
-  if (n<brute_force){
+void rainbows_and_unicorns(uint64_t n, std::vector<std::pair<std::string, std::string>> &vec) {
+  if (n < brute_force) {
     uint64_t n_max = pow(10, n);
-    for(uint64_t i = (n==1) ? 0 : pow(10, n-1); i< n_max && !exit_flag; i++){
-      std::string i_str = std::to_string(i);
+    for (uint64_t i = (n == 1) ? 0 : pow(10, n - 1); i < n_max && !exit_flag; i++) {
+      auto i_str = std::to_string(i);
+      SHA1 sha;
       sha.update(i_str);
       vec.push_back({sha.final(), i_str});
     }
   } else {
-
+    uint64_t repeats = pow(10, n) / chain_size;
+    for (uint64_t i = 0; i < repeats && !exit_flag; i++) {
+      std::string pass;
+      for (size_t j = 0; j < n; j++) {
+        pass += std::to_string(rand() % 10);
+      }
+      auto tmp = pass;
+      std::string hash;
+      for (uint64_t j = 0; j < chain_size; j++) {
+        SHA1 sha;
+        sha.update(tmp);
+        hash = sha.final();
+        tmp = reduce(hash, n);
+      }
+      vec.push_back({hash, pass});
+    }
   }
   std::cout << "done " << n << std::endl;
+}
+
+void quit_on_q() {
+  while (getchar() != 'q');
+  exit_flag = true;
+  std::cout << "acknowledged, initiating serialization" << std::endl;
 }
 
 void create_m(int n, std::string filename) {
@@ -47,34 +72,68 @@ void create_m(int n, std::string filename) {
   }
 
   std::vector<std::thread> threads;
-  for (int i = 0; i < n; i++){
-    threads.push_back(std::thread(rainbows_and_unicorns, i+1, std::ref(top_map[i])));
-  }
-
-  while(getchar() != 'q');
-  exit_flag = true;
-
-  for(auto &thread : threads){
-    thread.join();
+  for (int i = 0; i < n; i++) {
+    threads.push_back(std::thread(rainbows_and_unicorns, i + 1, std::ref(top_map[i])));
   }
 
   std::ofstream file(filename);
-  if(!file.is_open()){
+  if (!file.is_open()) {
     throw std::runtime_error("cannot open file with such name");
   }
 
+  std::thread kek(quit_on_q);
+
   file << n << '\n' << '\n';
-  for(auto &vec : top_map){
-    std::sort(vec.begin(), vec.end());
-    for(auto &pair : vec){
+
+  for (size_t i = 0; i<n; i++) {
+    threads[i].join();
+    std::sort(top_map[i].begin(), top_map[i].end());
+    for (auto &pair : top_map[i]) {
       file << pair.first << ',' << pair.second << '\n';
     }
     file << '\n';
   }
+  kek.join();
 }
 
-void find_unicorn_in_rainbows(int n, std::vector<std::pair<std::string, std::string>> &rainbows){
+void set_unicorn(std::string &unicorn){
+  std::lock_guard<std::mutex> guard(mtx);
+  if(!found) {
+    found_unicorn = unicorn;
+    found = true;
+  }
+}
 
+void find_unicorn_in_rainbows(size_t n, std::vector<std::pair<std::string, std::string>> &rainbows, std::string &hash){
+  if(n < brute_force){
+    auto iter = std::lower_bound(rainbows.begin(), rainbows.end(), std::pair<std::string, std::string>(hash, ""));
+    if(iter != rainbows.end() && iter->first == hash){
+      set_unicorn(iter->second);
+    }
+  }
+  else{
+    std::pair<std::string, std::string> hash_pair(hash, "");
+    for(size_t i = 0; i < chain_size && !found; i++){
+      auto iter = std::lower_bound(rainbows.begin(), rainbows.end(), hash_pair);
+      if(iter != rainbows.end() && iter->first == hash_pair.first){
+        std::string number = iter->second;
+        SHA1 sha1;
+        sha1.update(number);
+        std::string chain_hash = sha1.final();
+        for(size_t j = 0; j < chain_size - (i + 1); j++){
+          number = reduce(chain_hash, n);
+          sha1.update(number);
+          chain_hash = sha1.final();
+        }
+        if(chain_hash == hash){
+          set_unicorn(number);
+        }
+      }
+      SHA1 sha;
+      sha.update(reduce(hash_pair.first, n));
+      hash_pair.first = sha.final();
+    }
+  }
 }
 
 void find_hash_b(std::ifstream &input_file, std::string hash){
@@ -99,7 +158,7 @@ void find_hash_b(std::ifstream &input_file, std::string hash){
 
   std::vector<std::thread> threads;
   for (int i = 0; i < n; i++){
-    threads.push_back(std::thread(find_unicorn_in_rainbows, i+1, std::ref(hash[i])));
+    threads.push_back(std::thread(find_unicorn_in_rainbows, i+1, std::ref(rainbow[i]), std::ref(hash)));
   }
 
   for(auto &thread : threads){

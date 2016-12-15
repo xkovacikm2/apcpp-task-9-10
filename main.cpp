@@ -8,6 +8,7 @@
 #include <atomic>
 #include <cstdlib>
 #include <mutex>
+#include <iterator>
 #include "sha1.hpp"
 
 bool exit_flag = false;
@@ -19,27 +20,27 @@ std::mutex mtx;
 std::atomic_bool found(false);
 std::string found_unicorn;
 
-std::string reduce(std::string hash, size_t n) {
+std::string reduce(std::string hash, uint64_t n) {
   std::string digits_from_hash;
   std::copy_if(hash.begin(), hash.end(), std::back_inserter(digits_from_hash), isdigit);
   std::string result(digits_from_hash);
   while (result.length() < n) {
     result += digits_from_hash;
   }
-  return result.substr(0, n);
+  return result.substr(0, static_cast<unsigned int>(n));
 }
 
 void rainbows_and_unicorns(uint64_t n, std::vector<std::pair<std::string, std::string>> &vec) {
   if (n < brute_force) {
-    uint64_t n_max = pow(10, n);
-    for (uint64_t i = (n == 1) ? 0 : pow(10, n - 1); i < n_max && !exit_flag; i++) {
+    uint64_t n_max = static_cast<uint64_t>(pow(10, n));
+    for (uint64_t i = (n == 1) ? 0 : static_cast<uint64_t>(pow(10, n - 1)); i < n_max && !exit_flag; i++) {
       auto i_str = std::to_string(i);
       SHA1 sha;
       sha.update(i_str);
       vec.push_back({sha.final(), i_str});
     }
   } else {
-    uint64_t repeats = pow(10, n) / chain_size;
+    uint64_t repeats = static_cast<uint64_t>(pow(10, n)) / chain_size;
     for (uint64_t i = 0; i < repeats && !exit_flag; i++) {
       std::string pass;
       for (size_t j = 0; j < n; j++) {
@@ -65,14 +66,14 @@ void quit_on_q() {
   std::cout << "acknowledged, initiating serialization" << std::endl;
 }
 
-void create_m(int n, std::string filename) {
+void create_m(size_t n, std::string filename) {
   std::vector<std::vector<std::pair<std::string, std::string> >> top_map;
-  for (int i = 0; i < n; i++) {
+  for (size_t i = 0; i < n; i++) {
     top_map.push_back(std::vector<std::pair<std::string, std::string>>());
   }
 
   std::vector<std::thread> threads;
-  for (int i = 0; i < n; i++) {
+  for (size_t i = 0; i < n; i++) {
     threads.push_back(std::thread(rainbows_and_unicorns, i + 1, std::ref(top_map[i])));
   }
 
